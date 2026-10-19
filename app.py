@@ -1,516 +1,250 @@
+"""Visor ciudadano del Santuario Río Cruces. Proyecto académico, datos geográficos en revisión."""
+import base64
 import json
 import math
 from html import escape
+from pathlib import Path
 
 import folium
+import pandas as pd
 import requests
 import streamlit as st
 from folium.features import DivIcon
-from shapely.geometry import LineString
+from shapely.geometry import LineString, shape, mapping
+from shapely.ops import transform
 from streamlit_folium import st_folium
 
-st.set_page_config(
-    page_title="Santuario Río Cruces | Visor ciudadano",
-    page_icon="🦢",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+ROOT = Path(__file__).parent
+st.set_page_config(page_title='Santuario Río Cruces | Visor ciudadano', page_icon='🦢', layout='wide')
+CENTER = [-39.68, -73.19]
+HEADERS = {'User-Agent': 'VisorRioCrucesAcademico/1.0 (consulta cartografica)'}
+DATA = ROOT / 'data'
+ASSETS = ROOT / 'assets'
 
-HDR = {"User-Agent": "visor-ciudadano-rio-cruces/1.1 (proyecto academico)"}
-CENTRO = [-39.68, -73.19]
-EJE = [
-    (-39.790, -73.243), (-39.765, -73.232), (-39.742, -73.215),
-    (-39.720, -73.200), (-39.695, -73.190), (-39.670, -73.182),
-    (-39.645, -73.170), (-39.620, -73.160), (-39.595, -73.155),
-    (-39.570, -73.150),
-]
+@st.cache_data
+def cargar_csv(archivo):
+    return pd.read_csv(DATA / archivo).fillna('')
 
-# REGISTROS PRELIMINARES: coordenadas/radios aproximados, no oficiales.
-# Verificar nombre, titular, estado y geometría en los expedientes originales.
-PROYECTOS = [
-    {
-        "nombre": "Planta Valdivia (Celulosa Arauco)",
-        "categoria": "Actividad productiva",
-        "instrumento": "Por verificar",
-        "estado": "Antecedente por verificar",
-        "lat": -39.640, "lon": -73.010, "radio_m": 5000,
-        "responsable": "Arauco (verificar titular y expediente)",
-        "fuente": "https://seia.sea.gob.cl/",
-        "wiki": "Celulosa Arauco y Constitución",
-        "descripcion": (
-            "Instalación industrial que debe analizarse con sus antecedentes ambientales. "
-            "Verificar expedientes y ubicación. No atribuir efectos ecológicos sin fuentes "
-            "que respalden la relación causal."
-        ),
-        "verificado": False,
-    },
-    {
-        "nombre": "Condominio Parque Río Cruces (Etapa II)",
-        "categoria": "Desarrollo inmobiliario",
-        "instrumento": "Por verificar",
-        "estado": "Antecedente por verificar",
-        "lat": -39.8044, "lon": -73.2600, "radio_m": 1500,
-        "responsable": "Por verificar",
-        "fuente": "https://seia.sea.gob.cl/",
-        "wiki": "Isla Teja",
-        "descripcion": (
-            "Registro preliminar. Confirmar nombre oficial, titular, ubicación, instrumento "
-            "ambiental y estado administrativo en fuentes oficiales. La proximidad no prueba impacto."
-        ),
-        "verificado": False,
-    },
-    {
-        "nombre": "Loteo Riberas de la Dehesa (Tres Bocas)",
-        "categoria": "Loteo / intervención territorial",
-        "instrumento": "Por verificar",
-        "estado": "Antecedente por verificar",
-        "lat": -39.7256, "lon": -73.2381, "radio_m": 1500,
-        "responsable": "Por verificar",
-        "fuente": "https://snifa.sma.gob.cl/",
-        "wiki": "Río Cruces",
-        "descripcion": (
-            "Registro preliminar para revisar antecedentes del SEIA y de la SMA, incluidos "
-            "eventuales procedimientos de fiscalización. No es una conclusión de infracción o daño."
-        ),
-        "verificado": False,
-    },
-    {
-        "nombre": "Loteo / relleno Santa Rosa (Cabo Blanco)",
-        "categoria": "Loteo / intervención territorial",
-        "instrumento": "Por verificar",
-        "estado": "Antecedente por verificar",
-        "lat": -39.7753, "lon": -73.2311, "radio_m": 1000,
-        "responsable": "Por verificar",
-        "fuente": "https://snifa.sma.gob.cl/",
-        "wiki": "Río Cruces",
-        "descripcion": (
-            "Registro preliminar pendiente de corroboración. Verificar localización, titular, "
-            "permisos y antecedentes ambientales antes de presentarlo como información confirmada."
-        ),
-        "verificado": False,
-    },
-]
+proyectos = cargar_csv('proyectos.csv')
+especies = cargar_csv('especies.csv')
 
-# Estos puntos solo ilustran cómo se vería la capa; no son observaciones georreferenciadas.
-ESPECIES = [
-    {"tipo": "animal", "comun": "Cisne de cuello negro", "cient": "Cygnus melanocoryphus",
-     "wiki": "Cygnus melanocoryphus", "i": 4,
-     "info": "Ave acuática emblemática. Punto esquemático, no un registro de observación."},
-    {"tipo": "animal", "comun": "Huillín", "cient": "Lontra provocax",
-     "wiki": "Lontra provocax", "i": 6,
-     "info": "Mamífero semiacuático nativo. Confirmar registros locales antes de afirmar presencia en este punto."},
-    {"tipo": "animal", "comun": "Coipo", "cient": "Myocastor coypus",
-     "wiki": "Myocastor coypus", "i": 2,
-     "info": "Mamífero semiacuático asociado a humedales. Punto esquemático."},
-    {"tipo": "animal", "comun": "Garza cuca", "cient": "Ardea cocoi",
-     "wiki": "Ardea cocoi", "i": 7,
-     "info": "Ave de ambientes acuáticos y ribereños. Punto esquemático."},
-    {"tipo": "planta", "comun": "Luchecillo", "cient": "Egeria densa",
-     "wiki": "Egeria densa", "i": 5,
-     "info": "Planta acuática sumergida. Confirmar distribución local con fuente técnica."},
-    {"tipo": "planta", "comun": "Totora", "cient": "Schoenoplectus californicus",
-     "wiki": "Schoenoplectus californicus", "i": 3,
-     "info": "Planta de ambientes palustres. Punto esquemático."},
-    {"tipo": "insecto", "comun": "Ciervo volante", "cient": "Chiasognathus granti",
-     "wiki": "Chiasognathus granti", "i": 1,
-     "info": "Escarabajo nativo de bosques templados. No se afirma presencia local sin registro verificable."},
-]
-
-ICONOS = {
-    "animal": ("🦢", "#4c9be8"),
-    "planta": ("🌿", "#5cb85c"),
-    "insecto": ("🪲", "#8d6e63"),
-}
-
-INICIATIVAS = [
-    {
-        "nombre": "Plan de Manejo del Santuario",
-        "categoria": "Planificación y conservación",
-        "estado": "Consultar versión oficial vigente",
-        "responsable": "Organismos públicos competentes",
-        "descripcion": "Instrumento que orienta la conservación y gestión del área protegida. Consultar documento y fecha de vigencia.",
-        "fuente": "https://www.conaf.cl/centro-documental/pm-mn-y-sn-rio-cruces-y-chorocamayo-v-extendida/",
-    },
-    {
-        "nombre": "Actualización de antecedentes para el Plan de Manejo",
-        "categoria": "Planificación y conservación",
-        "estado": "Verificar contratación y resultados",
-        "responsable": "Ministerio del Medio Ambiente (verificar ficha)",
-        "descripcion": "Antecedente relacionado con amenazas, cartografía y participación. La licitación no prueba que los productos estén terminados.",
-        "fuente": "https://www.mercadopublico.cl/",
-    },
-    {
-        "nombre": "Plan Maestro del territorio del humedal",
-        "categoria": "Desarrollo comunitario",
-        "estado": "Consultar versión y avances",
-        "responsable": "Asociación Comunidad Humedal",
-        "descripcion": "Antecedente de planificación territorial comunitaria. Revisar documento original para confirmar prioridades y avances.",
-        "fuente": "https://www.comunidadhumedal.cl/",
-    },
-    {
-        "nombre": "Investigación y monitoreo del humedal",
-        "categoria": "Investigación y educación",
-        "estado": "Catálogo por ampliar",
-        "responsable": "Centro de Humedales Río Cruces y entidades colaboradoras",
-        "descripcion": "Categoría inicial para incorporar estudios y monitoreos con título, autores, año y enlace verificable.",
-        "fuente": "https://cehum.org/",
-    },
-]
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def wiki(titulo):
-    try:
-        url = "https://es.wikipedia.org/api/rest_v1/page/summary/" + requests.utils.quote(titulo.replace(" ", "_"))
-        r = requests.get(url, headers=HDR, timeout=8)
-        r.raise_for_status()
-        return r.json().get("thumbnail", {}).get("source")
-    except Exception:
-        return None
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def limite_osm():
-    for q in [
-        "Santuario de la Naturaleza Río Cruces y Chorocamayo",
-        "Santuario de la Naturaleza Carlos Anwandter",
-    ]:
+@st.cache_data(ttl=86400)
+def osm_limite():
+    for term in ['Santuario de la Naturaleza Río Cruces y Chorocamayo', 'Santuario de la Naturaleza Carlos Anwandter']:
         try:
-            r = requests.get(
-                "https://nominatim.openstreetmap.org/search",
-                params={"q": q, "format": "jsonv2", "polygon_geojson": 1, "limit": 5},
-                headers=HDR, timeout=12,
-            )
+            r = requests.get('https://nominatim.openstreetmap.org/search',
+                             params={'q':term, 'format':'jsonv2', 'polygon_geojson':1, 'limit':5},
+                             headers=HEADERS, timeout=12)
             r.raise_for_status()
             for item in r.json():
-                g = item.get("geojson")
-                if g and g.get("type") in ("Polygon", "MultiPolygon"):
-                    return {"type": "Feature", "properties": {}, "geometry": g}
-        except Exception:
+                g = item.get('geojson', {})
+                if g.get('type') in ['Polygon', 'MultiPolygon']:
+                    return {'type':'Feature','properties':{'fuente':'OpenStreetMap: referencia no oficial'}, 'geometry':g}
+        except (requests.RequestException, ValueError):
             pass
     return None
 
-def limite_esquematico(metros=1000):
-    lat0, lon0 = EJE[0]
-    kx = 111320 * math.cos(math.radians(lat0))
-    ky = 110574
-    xy = [((lon - lon0) * kx, (lat - lat0) * ky) for lat, lon in EJE]
-    pol = LineString(xy).buffer(metros)
-    coords = [[lon0 + x / kx, lat0 + y / ky] for x, y in pol.exterior.coords]
-    return {
-        "type": "Feature", "properties": {"fuente": "Esquema no oficial"},
-        "geometry": {"type": "Polygon", "coordinates": [coords]},
-    }
+# El eje es referencia esquemática original; NO es una geometría oficial.
+EJE = [(-39.790,-73.243),(-39.765,-73.232),(-39.742,-73.215),(-39.720,-73.200),
+       (-39.695,-73.190),(-39.670,-73.182),(-39.645,-73.170),(-39.620,-73.160),
+       (-39.595,-73.155),(-39.570,-73.150)]
 
-def popup(titulo, img, texto):
-    titulo = escape(str(titulo))
-    texto = escape(str(texto))
-    imagen = (
-        f'<img src="{escape(img, quote=True)}" alt="" style="width:100%;max-height:145px;'
-        'object-fit:cover;border-radius:6px">'
-        if img else '<p style="font-size:12px;color:#667085">Imagen no disponible</p>'
-    )
-    html = (
-        '<div style="font-family:Arial,sans-serif;width:260px">'
-        f'<h4 style="margin:0 0 8px;color:#24543f">{titulo}</h4>{imagen}'
-        f'<p style="font-size:12px;line-height:1.45">{texto}</p></div>'
-    )
-    return folium.Popup(html, max_width=320)
+def esquema(metros=1000):
+    lat0, lon0=EJE[0]
+    kx=111320*math.cos(math.radians(lat0)); ky=110574
+    pts=[((lon-lon0)*kx,(lat-lat0)*ky) for lat,lon in EJE]
+    geom=LineString(pts).buffer(metros)
+    xy=[[lon0+x/kx, lat0+y/ky] for x,y in geom.exterior.coords]
+    return {'type':'Feature','properties':{},'geometry':{'type':'Polygon','coordinates':[xy]}}
 
-def marcador(grupo, lat, lon, emoji, fondo, tip, pop):
-    html = (
-        f'<div style="width:34px;height:34px;border-radius:50%;background:{fondo};'
-        'border:2px solid white;box-shadow:0 1px 4px rgba(0,0,0,.35);display:flex;'
-        f'align-items:center;justify-content:center;font-size:18px">{emoji}</div>'
-    )
-    folium.Marker(
-        [lat, lon], tooltip=tip, popup=pop,
-        icon=DivIcon(icon_size=(34, 34), icon_anchor=(17, 17), html=html),
-    ).add_to(grupo)
+def leer_geojson(archivo):
+    if archivo is None: return None
+    try:
+        d=json.load(archivo)
+        if d.get('type') not in ['Feature','FeatureCollection','Polygon','MultiPolygon']:
+            raise ValueError('El tipo de geometría no es compatible.')
+        # Folium acepta objetos FeatureCollection, Feature y geometrías GeoJSON.
+        return d
+    except (ValueError, json.JSONDecodeError) as exc:
+        st.error(f'No se pudo cargar el GeoJSON: {exc}')
+        return None
 
-st.markdown(
-    """
-    <style>
-    .block-container {padding-top:1.4rem; padding-bottom:2.5rem;}
-    .hero {padding:1.5rem 1.7rem; border-radius:16px; background:linear-gradient(120deg,#e4f2e9,#f5f8f5);
-           border:1px solid #c9dfd1; margin-bottom:1rem;}
-    .hero h1 {color:#214e3a; margin-bottom:.4rem;}
-    .hero p {color:#344c40; font-size:1.05rem; max-width:900px;}
-    div[data-testid="stMetric"] {background:#f6faf7; border:1px solid #e0ece4; padding:12px 14px; border-radius:12px;}
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+def imagen_encabezado():
+    path=ASSETS/'portada_humedal.jpg'
+    if path.exists():
+        b64=base64.b64encode(path.read_bytes()).decode()
+        return f'url("data:image/jpeg;base64,{b64}")'
+    return 'linear-gradient(120deg,#173b38,#37795a)'
 
-st.sidebar.title("🦢 Río Cruces")
-st.sidebar.caption("Visor territorial ciudadano")
-if "seccion" not in st.session_state:
-    st.session_state["seccion"] = "Inicio"
-secciones = ["Inicio", "Visor territorial", "Proyectos e iniciativas", "Conoce el humedal", "Fuentes y participación"]
-seccion = st.sidebar.radio(
-    "Navegación principal", secciones,
-    index=secciones.index(st.session_state["seccion"]),
-    key="nav_seccion",
-)
-st.session_state["seccion"] = seccion
+st.markdown('''<style>
+.block-container{padding-top:1rem;padding-bottom:2rem;max-width:1450px}
+.hero{border-radius:22px;padding:3rem 2.5rem;min-height:340px;display:flex;flex-direction:column;justify-content:center;color:white;
+background:linear-gradient(90deg,rgba(5,31,33,.91),rgba(5,31,33,.37)),var(--hero-image);background-position:center;background-size:cover}
+.hero h1{font-size:clamp(2rem,4vw,3.25rem);color:white;max-width:780px}
+.hero p{max-width:660px;font-size:1.12rem;line-height:1.65}
+.note{border-left:4px solid #347f6a;padding:.7rem 1rem;background:#edf5f1;border-radius:6px}
+div[data-testid="stMetric"]{border:1px solid #dce8e1;border-radius:12px;padding:12px;background:#f6faf8}
+@media(max-width:700px){.hero{padding:2rem 1.2rem;min-height:270px}}
+</style>''',unsafe_allow_html=True)
+
+if 'navegacion' not in st.session_state: st.session_state.navegacion='Inicio'
+paginas=['Inicio','Visor territorial','Proyectos e iniciativas','Conoce el humedal','Fuentes y participación']
+st.sidebar.markdown('## 🦢 Río Cruces')
+st.sidebar.caption('Información territorial para todas las personas')
+pagina=st.sidebar.radio('Secciones', paginas, key='navegacion')
 st.sidebar.divider()
-st.sidebar.caption("Las fichas preliminares se identifican expresamente. Verifica siempre las fuentes originales.")
+st.sidebar.caption('Versión de trabajo · geodatos por validar')
 
-# =============================== INICIO ===============================
-if seccion == "Inicio":
-    st.markdown(
-        """
-        <div class="hero">
-          <h1>Conoce el Santuario Río Cruces</h1>
-          <p>Explora información territorial, ambiental y social del Santuario de la Naturaleza Río Cruces y Chorocamayo.
-          Consulta el mapa, conoce iniciativas y accede a fuentes originales sin necesitar conocimientos técnicos de cartografía.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Herramientas", "Mapa + fichas")
-    c2.metric("Enfoque", "Información abierta")
-    c3.metric("Propósito", "Acceso ciudadano")
-    st.subheader("¿Qué quieres consultar?")
-    a, b, c = st.columns(3)
+if pagina=='Inicio':
+    background=imagen_encabezado()
+    st.markdown(f'<div class="hero" style="--hero-image:{background}"><h1>Un humedal vivo, un territorio compartido</h1><p>Conoce el Santuario de la Naturaleza Río Cruces y Chorocamayo, explora su territorio y consulta iniciativas, biodiversidad y fuentes de información pública.</p></div>',unsafe_allow_html=True)
+    st.write('')
+    a,b,c=st.columns(3)
     with a:
-        st.markdown("### 🗺️ Explorar el territorio")
-        st.write("Activa capas y consulta los elementos del mapa.")
-        if st.button("Abrir visor", use_container_width=True):
-            st.session_state["seccion"] = "Visor territorial"
-            st.rerun()
+        st.subheader('🗺️ Visor territorial'); st.write('Explora las capas y comprende sus límites.')
+        if st.button('Explorar el mapa',use_container_width=True): st.session_state.navegacion='Visor territorial';st.rerun()
     with b:
-        st.markdown("### 🏗️ Consultar proyectos")
-        st.write("Busca iniciativas, estados conocidos y fuentes.")
-        if st.button("Ver proyectos", use_container_width=True):
-            st.session_state["seccion"] = "Proyectos e iniciativas"
-            st.rerun()
+        st.subheader('🏗️ Proyectos e iniciativas');st.write('Encuentra documentos, responsables y estado de los antecedentes.')
+        if st.button('Consultar proyectos',use_container_width=True): st.session_state.navegacion='Proyectos e iniciativas';st.rerun()
     with c:
-        st.markdown("### 🌿 Conocer el humedal")
-        st.write("Lee explicaciones sencillas sobre ecosistema y gestión.")
-        if st.button("Aprender", use_container_width=True):
-            st.session_state["seccion"] = "Conoce el humedal"
-            st.rerun()
-    st.subheader("Principios de la plataforma")
-    p1, p2, p3 = st.columns(3)
-    p1.markdown("**Accesibilidad**\n\nInformación clara y alternativas al mapa.")
-    p2.markdown("**Transparencia**\n\nFuentes, fechas y limitaciones visibles.")
-    p3.markdown("**Participación**\n\nAcceso a instituciones y canales públicos.")
-    st.info("Los puntos y radios de proyectos de esta versión son preliminares. No deben interpretarse como ubicaciones o impactos confirmados.")
+        st.subheader('🌿 Conoce el humedal');st.write('Aprende sobre su biodiversidad, conservación y funcionamiento.')
+        if st.button('Aprender del humedal',use_container_width=True):st.session_state.navegacion='Conoce el humedal';st.rerun()
+    st.divider();st.subheader('El territorio en contexto')
+    c1,c2,c3=st.columns(3)
+    c1.metric('Iniciativas documentales',len(proyectos),'No implica ejecución vigente',delta_color='off')
+    c2.metric('Temas de biodiversidad',len(especies),'Fichas de divulgación',delta_color='off')
+    c3.metric('Criterio del visor','Fuentes abiertas')
+    st.info('Los proyectos institucionales son referencias documentales; los proyectos de impacto territorial originales están separados como registros de trabajo sin verificar. No se deducen impactos a partir de cercanía geográfica.')
+    st.markdown('**Nuestro propósito:** que la información se pueda consultar mediante mapas, fichas y enlaces directos, sin conocimientos previos de SIG.')
 
-# =========================== VISOR TERRITORIAL ===========================
-elif seccion == "Visor territorial":
-    st.title("Visor territorial")
-    st.write("Activa las capas que quieras explorar. Selecciona los elementos del mapa para consultar sus fichas.")
-    with st.expander("¿Qué significa cada tipo de área?"):
-        st.markdown(
-            "- **Área protegida:** límite legal respaldado por cartografía oficial.\n"
-            "- **Área de influencia de un proyecto:** delimitación documentada en su expediente ambiental.\n"
-            "- **Área de análisis territorial:** zona definida para estudiar relaciones hídricas, ecológicas o sociales.\n"
-            "- **Radio ilustrativo:** círculo preliminar; no representa un impacto demostrado."
-        )
-
-    panel, mapa_col = st.columns([1, 3])
+elif pagina=='Visor territorial':
+    st.title('🗺️ Visor territorial')
+    st.write('Utiliza las capas para explorar el territorio. En la leyenda se distingue entre límites verificados, datos de referencia y dibujos ilustrativos.')
+    panel,main=st.columns([1,3],gap='large')
     with panel:
-        tipo_mapa = st.radio("Mapa base", ["OpenStreetMap", "Satelital", "Claro"])
-        ver_santuario = st.checkbox("Límite del santuario", True)
-        ver_proyectos = st.checkbox("Proyectos preliminares", True)
-        ver_influencia = st.checkbox("Radios ilustrativos de proyectos", False)
-        ver_animales = st.checkbox("Fauna (puntos esquemáticos)", True)
-        ver_plantas = st.checkbox("Flora (puntos esquemáticos)", True)
-        ver_insectos = st.checkbox("Insectos (puntos esquemáticos)", False)
-        ver_eje = st.checkbox("Eje hidrográfico esquemático", False)
-        st.caption("Los puntos de especies no son observaciones georreferenciadas.")
-        archivo = st.file_uploader("Cargar límite oficial (GeoJSON, opcional)", type=["geojson", "json"]) if ver_santuario else None
-
-    if tipo_mapa == "Satelital":
-        m = folium.Map(CENTRO, zoom_start=11, tiles=None, control_scale=True)
-        folium.TileLayer(
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri World Imagery", name="Imagen satelital",
-        ).add_to(m)
-    elif tipo_mapa == "Claro":
-        m = folium.Map(CENTRO, zoom_start=11, tiles="CartoDB positron", control_scale=True)
+        base=st.selectbox('Mapa base',['OpenStreetMap','Satelital','Claro'])
+        st.subheader('Capas')
+        ver_limite=st.checkbox('Límite del santuario',True)
+        ver_esquema=st.checkbox('Franja esquemática',False,help='No es área de influencia oficial')
+        ver_eje=st.checkbox('Eje hidrográfico de referencia',False)
+        ver_proyectos=st.checkbox('Proyectos con ubicación preliminar',True)
+        ver_radios=st.checkbox('Radios ilustrativos de proyectos',False)
+        ver_especies=st.checkbox('Ejemplos de especies (no son observaciones)',False)
+        st.divider();st.caption('Límites / área de influencia')
+        limite_cargado=leer_geojson(st.file_uploader('GeoJSON oficial del santuario',type=['json','geojson'],key='limite'))
+        influencia_cargada=leer_geojson(st.file_uploader('GeoJSON del área de análisis',type=['json','geojson'],key='influencia'))
+        st.caption('Subir archivos no demuestra que sean oficiales: consigna fuente, escala y metodología.')
+    if base=='Satelital':
+        mapa=folium.Map(CENTER,zoom_start=11,tiles=None,control_scale=True)
+        folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',attr='Esri World Imagery',name='Satelital').add_to(mapa)
     else:
-        m = folium.Map(CENTRO, zoom_start=11, tiles="OpenStreetMap", control_scale=True)
-
-    if ver_santuario:
-        limite, fuente = None, ""
-        if archivo is not None:
-            try:
-                limite, fuente = json.load(archivo), "Archivo cargado; verificar metadatos"
-            except Exception as exc:
-                st.error(f"No se pudo leer el GeoJSON: {exc}")
-        if limite is None:
-            limite = limite_osm()
-            fuente = "OpenStreetMap; no sustituye cartografía oficial"
-        if limite is None:
-            limite = limite_esquematico()
-            fuente = "Esquema aproximado no oficial"
-        folium.GeoJson(
-            limite, name="Límite representado",
-            style_function=lambda f: {"color": "#247445", "weight": 2.5, "fillColor": "#a8e6a1", "fillOpacity": 0.22},
-            tooltip="Límite representado: revisar fuente",
-        ).add_to(m)
-        st.caption("**Fuente del límite:** " + fuente)
-
-    if ver_eje:
-        folium.PolyLine(
-            [[lat, lon] for lat, lon in EJE],
-            color="#1976a8", weight=4, opacity=0.8,
-            tooltip="Eje hidrográfico esquemático; reemplazar por red hidrográfica oficial",
-        ).add_to(m)
-
+        mapa=folium.Map(CENTER,zoom_start=11,tiles='OpenStreetMap' if base=='OpenStreetMap' else 'CartoDB positron',control_scale=True)
+    if ver_limite:
+        limite=limite_cargado or osm_limite()
+        if limite:
+            folium.GeoJson(limite,name='Santuario (revisar fuente)',style_function=lambda f:{'color':'#21824d','weight':3,'fillColor':'#71d7a2','fillOpacity':.18},tooltip='Límite representado; confirmar fuente').add_to(mapa)
+        else:st.warning('No se obtuvo el polígono. Carga el límite oficial GeoJSON. No se dibujó uno ficticio como límite legal.')
+    if influencia_cargada:
+        folium.GeoJson(influencia_cargada,name='Área de análisis aportada',style_function=lambda f:{'color':'#f39c12','weight':3,'dashArray':'7,6','fillOpacity':.08},tooltip='Área de análisis cargada: revisar metodología').add_to(mapa)
+    if ver_esquema:
+        folium.GeoJson(esquema(1200),name='Franja esquemática NO OFICIAL',style_function=lambda f:{'color':'#e9a23b','weight':2,'dashArray':'6,6','fillOpacity':.04},tooltip='Franja ilustrativa, no es área de influencia').add_to(mapa)
+    if ver_eje:folium.PolyLine(EJE,color='#1a78a3',weight=3,tooltip='Eje aproximado').add_to(mapa)
     if ver_proyectos:
-        gp = folium.FeatureGroup(name="Proyectos preliminares", show=True)
-        for p in PROYECTOS:
-            texto = (
-                f"Categoría: {p['categoria']}. Estado: {p['estado']}. {p['descripcion']} "
-                f"Fuente para consultar: {p['fuente']}. Ubicación preliminar."
-            )
-            marcador(gp, p["lat"], p["lon"], "?", "#b97725", p["nombre"], popup(p["nombre"], wiki(p["wiki"]), texto))
-        gp.add_to(m)
+        grupo=folium.FeatureGroup(name='Proyectos de ubicación preliminar')
+        for _,p in proyectos[proyectos['mostrar_mapa'].astype(str)=='si'].iterrows():
+            if str(p['lat'])=='' or str(p['lon'])=='':continue
+            contenido=f"<b>{escape(str(p['nombre']))}</b><br>{escape(str(p['categoria']))}<br>Ubicación aproximada; revisar expediente.<br><a target='_blank' href='{escape(str(p['fuente']),quote=True)}'>Ver fuente</a>"
+            folium.Marker([float(p['lat']),float(p['lon'])],tooltip=p['nombre'],popup=folium.Popup(contenido,max_width=290),icon=folium.Icon(color='orange',icon='info-sign')).add_to(grupo)
+        grupo.add_to(mapa)
+    if ver_radios:
+        grupo=folium.FeatureGroup(name='Radios ilustrativos NO OFICIALES')
+        for _,p in proyectos[proyectos['mostrar_mapa'].astype(str)=='si'].iterrows():
+            if str(p['lat'])=='' or str(p['lon'])=='':continue
+            folium.Circle([float(p['lat']),float(p['lon'])],radius=int(p['radio_m']),color='#de8e29',fill=True,fill_opacity=.07,tooltip='Radio ilustrativo; no equivale a área de influencia').add_to(grupo)
+        grupo.add_to(mapa)
+    if ver_especies:
+        grupo=folium.FeatureGroup(name='Puntos DEMOSTRATIVOS de especies')
+        for ix,(_,e) in enumerate(especies.iterrows()):
+            lat,lon=EJE[ix%len(EJE)]
+            folium.CircleMarker([lat,lon],radius=7,color='#218f76',fill=True,fill_opacity=.85,tooltip=e['nombre']+' (punto demostrativo)').add_to(grupo)
+        grupo.add_to(mapa)
+    folium.LayerControl(collapsed=True).add_to(mapa)
+    with main: st_folium(mapa,height=610,use_container_width=True,returned_objects=[])
+    st.warning('IMPORTANTE: aún no se ha incorporado una capa oficial de influencia hidroecológica. Carga una geometría GeoJSON fundamentada o trabaja la delimitación en QGIS. Los círculos no representan impactos ambientales.')
+    with st.expander('Cómo elaborar el área de influencia en QGIS'):
+        st.markdown('1. Obtener el polígono oficial del santuario y la red hidrográfica/subcuencas.\n2. Definir conexiones hídricas y ecosistemas asociados con criterios justificables.\n3. Incorporar localidades e infraestructura como capa socio-territorial diferenciada.\n4. Exportar **GeoJSON EPSG:4326** y cargarlo en el visor.\n5. Documentar método, escala, fecha y fuentes.\n\nUn buffer uniforme solo sirve para una aproximación exploratoria, no equivale a un área de influencia ecológica oficial.')
 
-    if ver_influencia:
-        gi = folium.FeatureGroup(name="Radios ilustrativos — no oficiales")
-        for p in PROYECTOS:
-            folium.Circle(
-                [p["lat"], p["lon"]], radius=p["radio_m"], color="#d97706",
-                weight=1.5, fill=True, fill_color="#fbbf24", fill_opacity=0.12,
-                tooltip=f"Radio ilustrativo: {p['radio_m']:,} m — {p['nombre']}",
-            ).add_to(gi)
-        gi.add_to(m)
+elif pagina=='Proyectos e iniciativas':
+    st.title('🏗️ Proyectos e iniciativas')
+    st.write('Consulta instrumentos de manejo, proyectos comunitarios y registros preliminares de actividades territoriales. Cada ficha enlaza su fuente de consulta.')
+    col1,col2,col3=st.columns([2,1,1])
+    with col1:consulta=st.text_input('Buscar por nombre, descripción o responsable',placeholder='Ej.: gobernanza, restauración, Cau Cau')
+    with col2:categoria=st.selectbox('Categoría',['Todas']+sorted(proyectos.categoria.unique().tolist()))
+    with col3:solo_documentados=st.checkbox('Solo referencias documentales',False)
+    seleccion=proyectos.copy()
+    if consulta:
+        cols=['nombre','categoria','descripcion','responsable']
+        filtro=seleccion[cols].astype(str).apply(lambda col:col.str.contains(consulta,case=False,regex=False)).any(axis=1)
+        seleccion=seleccion[filtro]
+    if categoria!='Todas':seleccion=seleccion[seleccion.categoria==categoria]
+    if solo_documentados:seleccion=seleccion[seleccion['nivel']=='Referencia documental']
+    st.caption(f'{len(seleccion)} resultados · registro documental ≠ proyecto vigente ni impacto constatado')
+    for _,p in seleccion.iterrows():
+        with st.expander(('📖 ' if p['nivel']=='Referencia documental' else '⚠️ ')+str(p['nombre'])):
+            st.markdown(f"**Categoría:** {p['categoria']}  ")
+            st.markdown(f"**Tipo de registro:** {p['nivel']}  ")
+            st.markdown(f"**Estado:** {p['estado']}  ")
+            st.markdown(f"**Responsable:** {p['responsable']}  ")
+            st.write(p['descripcion'])
+            st.markdown(f"[Consultar documento o portal de origen]({p['fuente']})")
+            st.caption('Ubicación cartográfica disponible solo cuando exista coordenada; las marcadas son aproximadas. Fuente consultada: ' + str(p['fecha_consulta']))
+    st.download_button('Descargar catálogo CSV (incluye nivel de certeza)',proyectos.to_csv(index=False).encode('utf-8-sig'),file_name='proyectos_rio_cruces.csv',mime='text/csv')
 
-    visibles = {"animal": ver_animales, "planta": ver_plantas, "insecto": ver_insectos}
-    for tipo, nombre in [("animal", "Fauna esquemática"), ("planta", "Flora esquemática"), ("insecto", "Insectos esquemáticos")]:
-        if not visibles[tipo]:
-            continue
-        grupo = folium.FeatureGroup(name=nombre)
-        for e in ESPECIES:
-            if e["tipo"] != tipo:
-                continue
-            lat, lon = EJE[e["i"]]
-            emoji, color = ICONOS[tipo]
-            titulo = f"{e['comun']} ({e['cient']})"
-            texto = e["info"] + " Ubicación esquemática; no es un registro de observación."
-            marcador(grupo, lat + 0.004, lon - 0.006, emoji, color, e["comun"], popup(titulo, wiki(e["wiki"]), texto))
-        grupo.add_to(m)
+elif pagina=='Conoce el humedal':
+    st.title('🌿 Conoce el humedal')
+    st.write('Un recorrido por los conceptos esenciales, con explicaciones sencillas y fuentes para profundizar.')
+    tabs=st.tabs(['El humedal','Biodiversidad','El territorio','Preguntas frecuentes'])
+    with tabs[0]:
+        st.subheader('¿Por qué es importante?')
+        st.write('Los humedales son ecosistemas donde el agua influye en los suelos, las plantas y los animales. Pueden albergar biodiversidad, retener sedimentos y aportar a la regulación del agua. Sus funciones varían según cada sitio.')
+        st.markdown('**Santuario Río Cruces y Chorocamayo:** conoce su gestión en el [Plan de Manejo de CONAF](https://www.conaf.cl/centro-documental/pm-mn-y-sn-rio-cruces-y-chorocamayo-v-extendida/).')
+    with tabs[1]:
+        texto=st.text_input('Buscar una especie')
+        resultados=especies[especies['nombre'].str.contains(texto,case=False,regex=False)]
+        for _,e in resultados.iterrows():
+            with st.expander(f"{e['emoji']} {e['nombre']} — {e['cientifico']}"):
+                st.write(e['descripcion'])
+                st.caption('Ficha educativa: no implica registro georreferenciado en el lugar dibujado en el mapa.')
+                st.markdown(f"[Más información sobre la especie]({e['fuente']})")
+    with tabs[2]:
+        st.markdown('**Cuenca hidrográfica:** territorio cuyas aguas drenan hacia un mismo sistema.\n\n**Área protegida:** límite legal definido en su instrumento de creación.\n\n**Área de análisis territorial:** delimitación definida por un estudio; necesita objetivos y metodología.\n\n**Área de influencia de proyecto:** debe justificarse de acuerdo con el sistema ambiental y sus posibles efectos.')
+    with tabs[3]:
+        for pregunta,respuesta in [
+            ('¿Un proyecto cercano daña necesariamente al santuario?','No. La proximidad es un antecedente espacial, pero no demuestra impactos ni relaciones causales.'),
+            ('¿Qué diferencia hay entre DIA y EIA?','Ambas son vías de evaluación del SEIA con requisitos distintos. El instrumento no señala por sí solo si el proyecto fue aprobado.'),
+            ('¿El mapa muestra áreas oficiales?','Solo cuando se cuenta con un archivo oficial y se verifica su origen. Las capas de referencia se etiquetan explícitamente.')]:
+            with st.expander(pregunta):st.write(respuesta)
 
-    folium.LayerControl(collapsed=True).add_to(m)
-    with mapa_col:
-        st_folium(m, use_container_width=True, height=650, returned_objects=[])
-    st.caption("Los radios, puntos de especies y registros preliminares no prueban ubicación, presencia ni impacto.")
-
-# ======================== PROYECTOS E INICIATIVAS ========================
-elif seccion == "Proyectos e iniciativas":
-    st.title("Proyectos e iniciativas")
-    st.write("Catálogo inicial de antecedentes. Los estados y ubicaciones pendientes se muestran de forma explícita.")
-    busqueda = st.text_input("Buscar por nombre, tema o institución")
-    registros = []
-    for p in PROYECTOS:
-        registros.append({**p, "tipo_registro": "Proyecto territorial"})
-    for i in INICIATIVAS:
-        registros.append({
-            **i, "instrumento": "No aplica / revisar ficha",
-            "verificado": False, "tipo_registro": "Plan, programa o iniciativa",
-        })
-    categorias = ["Todas"] + sorted({r["categoria"] for r in registros})
-    categoria = st.selectbox("Categoría", categorias)
-    pendientes = st.checkbox("Mostrar registros pendientes de verificación", True)
-    filtrados = []
-    for r in registros:
-        texto = " ".join([r["nombre"], r["categoria"], r["responsable"], r["descripcion"], r["estado"]]).lower()
-        if busqueda.strip().lower() not in texto:
-            continue
-        if categoria != "Todas" and r["categoria"] != categoria:
-            continue
-        if not pendientes and not r.get("verificado", False):
-            continue
-        filtrados.append(r)
-    st.caption(f"{len(filtrados)} registros coinciden con los filtros.")
-    for r in filtrados:
-        with st.expander(("⚠️ " if not r.get("verificado", False) else "✓ ") + r["nombre"]):
-            st.caption(r.get("tipo_registro", "Registro") + " · " + r["categoria"])
-            st.write(r["descripcion"])
-            st.write("**Estado:** " + r["estado"])
-            st.write("**Institución / responsable:** " + r["responsable"])
-            st.write("**Instrumento ambiental:** " + r.get("instrumento", "No aplica / revisar ficha"))
-            st.markdown(f"[Consultar portal o fuente]({r['fuente']})")
-            if not r.get("verificado", False):
-                st.warning("Ficha preliminar: verificar el documento original y anotar fecha de consulta.")
-    st.info("La inclusión en el catálogo no significa que una iniciativa esté aprobada, ejecutándose o que haya causado impactos.")
-
-# ============================= CONOCE HUMEDAL =============================
-elif seccion == "Conoce el humedal":
-    st.title("Conoce el humedal")
-    st.write("Guías breves para comprender el territorio sin conocimientos técnicos previos.")
-    with st.expander("¿Qué es un humedal?", expanded=True):
-        st.write("Es un ambiente donde el agua condiciona el suelo, la vegetación y la vida silvestre. Puede ofrecer hábitat, almacenar agua y retener sedimentos; sus funciones varían según sus condiciones.")
-    with st.expander("¿Por qué mirar más allá del límite del santuario?"):
-        st.write("Los procesos ecológicos no siempre coinciden con límites administrativos. El agua, los sedimentos, la conectividad de hábitats y las actividades humanas pueden conectar el área protegida con sectores vecinos.")
-    with st.expander("¿Qué significa área de influencia?"):
-        st.write("En evaluación ambiental se define según los elementos que podrían verse afectados y los impactos evaluados. No equivale automáticamente a un círculo. Los radios del visor son ilustrativos hasta ser reemplazados por geometrías documentadas.")
-    with st.expander("¿Qué diferencia hay entre DIA y EIA?"):
-        st.write("Son instrumentos del Sistema de Evaluación de Impacto Ambiental. Tienen requisitos distintos, y el instrumento no informa por sí solo si un proyecto está aprobado. Hay que consultar el estado en el expediente oficial.")
-    with st.expander("¿Cómo leer las capas del mapa?"):
-        st.write("Revisa fuente, fecha, escala y metodología. Una capa puede ser un límite legal, un dato histórico, una estimación o una propuesta de análisis; la ficha debe aclararlo.")
-    st.subheader("Fuentes para profundizar")
-    st.markdown(
-        "- [Ministerio del Medio Ambiente](https://mma.gob.cl/)\n"
-        "- [SIMBIO](https://simbio.mma.gob.cl/)\n"
-        "- [Sistema de Evaluación de Impacto Ambiental](https://seia.sea.gob.cl/)\n"
-        "- [Superintendencia del Medio Ambiente — SNIFA](https://snifa.sma.gob.cl/)\n"
-        "- [CONAF — documentos del santuario](https://www.conaf.cl/centro-documental/pm-mn-y-sn-rio-cruces-y-chorocamayo-v-extendida/)\n"
-        "- [Centro de Humedales Río Cruces](https://cehum.org/)\n"
-        "- [Asociación Comunidad Humedal](https://www.comunidadhumedal.cl/)"
-    )
-
-# ======================= FUENTES Y PARTICIPACIÓN =======================
-elif seccion == "Fuentes y participación":
-    st.title("Fuentes, transparencia y participación")
-    st.write("Consulta los antecedentes originales y distingue información oficial, científica, preliminar y aportes ciudadanos.")
-    fuentes = [
-        ("Ministerio del Medio Ambiente", "Políticas, planes y antecedentes ambientales.", "https://mma.gob.cl/"),
-        ("SIMBIO", "Biodiversidad y áreas de conservación.", "https://simbio.mma.gob.cl/"),
-        ("SEIA", "Expedientes y estado de proyectos evaluados ambientalmente.", "https://seia.sea.gob.cl/"),
-        ("SNIFA / SMA", "Fiscalización y antecedentes de la Superintendencia del Medio Ambiente.", "https://snifa.sma.gob.cl/"),
-        ("CONAF", "Documentos de gestión y conservación.", "https://www.conaf.cl/"),
-        ("Centro de Humedales Río Cruces", "Investigación y educación.", "https://cehum.org/"),
-        ("Comunidad Humedal", "Iniciativas comunitarias y territoriales.", "https://www.comunidadhumedal.cl/"),
-        ("Mercado Público", "Licitaciones y contrataciones públicas.", "https://www.mercadopublico.cl/"),
-    ]
-    for nombre, descripcion, url in fuentes:
-        with st.container(border=True):
-            st.markdown(f"**{nombre}**")
-            st.write(descripcion)
-            st.markdown(f"[Abrir fuente]({url})")
-    st.subheader("Criterios de calidad")
-    st.markdown(
-        "- **Oficial:** publicado por la institución competente.\n"
-        "- **Científica:** procedente de un estudio identificable.\n"
-        "- **Elaboración propia:** procesada por el equipo y acompañada de metodología.\n"
-        "- **Preliminar:** pendiente de corroboración.\n"
-        "- **Aporte ciudadano:** entregado por una persona u organización y pendiente de revisión."
-    )
-    st.subheader("Sugerir una corrección o recurso")
-    st.write("Este formulario prepara un archivo local. No publica ni envía el aporte automáticamente.")
-    with st.form("formulario_aporte"):
-        tipo_aporte = st.selectbox("Tipo de aporte", [
-            "Corrección de información", "Nuevo proyecto o documento",
-            "Registro ambiental", "Sugerencia de accesibilidad", "Otro",
-        ])
-        detalle = st.text_area("Describe el aporte", placeholder="Indica qué debería revisarse y por qué. No incluyas datos personales sensibles.")
-        enlace = st.text_input("Enlace a una fuente (opcional)")
-        enviado = st.form_submit_button("Preparar aporte")
-    if enviado:
-        if not detalle.strip():
-            st.error("Escribe una descripción antes de preparar el aporte.")
+else:
+    st.title('👥 Fuentes y participación')
+    st.write('Transparencia para consultar los datos, revisar su calidad y aportar observaciones.')
+    sitios=[('Plan de Manejo CONAF','https://www.conaf.cl/centro-documental/pm-mn-y-sn-rio-cruces-y-chorocamayo-v-extendida/'),('SIMBIO','https://simbio.mma.gob.cl/'),('SEIA','https://seia.sea.gob.cl/'),('SNIFA — SMA','https://snifa.sma.gob.cl/'),('Comunidad Humedal','https://www.comunidadhumedal.cl/biblioteca/'),('Centro de Humedales Río Cruces','https://cehum.org/'),('Mercado Público','https://www.mercadopublico.cl/')]
+    for name,url in sitios:st.markdown(f'- [{name}]({url})')
+    st.subheader('Qué significa cada nivel de información')
+    st.markdown('**Referencia documental:** existe una fuente específica sobre la iniciativa, pero su estado actual puede requerir confirmación.\n\n**Pendiente de verificación:** ficha de trabajo sin suficientes documentos para comprobar su contenido.\n\n**Ilustrativo:** elemento visual que no representa coordenadas ni delimitaciones oficiales.')
+    st.subheader('Prepara un aporte ciudadano')
+    st.caption('Este formulario no envía información a un servidor ni publica datos. Genera un archivo para compartir con el equipo que administra el visor.')
+    with st.form('aporte'):
+        tipo=st.selectbox('¿Qué deseas aportar?',['Corrección de un dato','Documento o iniciativa','Sugerencia de accesibilidad','Otro'])
+        descripcion=st.text_area('Cuéntanos tu sugerencia (sin datos personales sensibles)')
+        url=st.text_input('Enlace a la fuente, si existe')
+        enviar=st.form_submit_button('Preparar archivo de aporte')
+    if enviar:
+        if not descripcion.strip():st.error('Completa la descripción.')
         else:
-            aporte = {"tipo": tipo_aporte, "detalle": detalle.strip(), "fuente": enlace.strip()}
-            datos = json.dumps(aporte, ensure_ascii=False, indent=2)
-            st.success("Aporte preparado localmente; no se ha enviado ni publicado.")
-            st.code(datos, language="json")
-            st.download_button("Descargar aporte en JSON", data=datos, file_name="aporte_visor_rio_cruces.json", mime="application/json")
+            archivo=json.dumps({'tipo':tipo,'descripcion':descripcion,'fuente':url},ensure_ascii=False,indent=2)
+            st.success('Archivo preparado. No se ha enviado automáticamente.')
+            st.download_button('Descargar sugerencia',archivo,file_name='aporte_visor.json',mime='application/json')
 
-st.sidebar.divider()
-st.sidebar.caption("Visor ciudadano · versión de trabajo")
-st.sidebar.caption("Verifica los datos con las fuentes originales antes de utilizarlos en informes.")
+st.divider()
+st.caption('Visor territorial ciudadano · Prototipo académico · Verifica fechas, geometrías y estados en las fuentes originales. No sustituye información ambiental oficial.')
