@@ -25,8 +25,8 @@ ASSETS = ROOT / 'assets'
 def cargar_csv(archivo):
     ruta = DATA / archivo
     if not ruta.exists():
-        st.error(f'Falta el archivo {ruta.relative_to(ROOT)}. Súbelo a GitHub dentro de la carpeta data.')
-        st.stop()
+        st.warning(f'Falta el archivo {ruta.relative_to(ROOT)}. Sube la carpeta data a GitHub.')
+        return pd.DataFrame()
     try:
         return pd.read_csv(ruta, dtype=str, keep_default_na=False).fillna('')
     except Exception as exc:
@@ -35,6 +35,13 @@ def cargar_csv(archivo):
 
 proyectos = cargar_csv('proyectos.csv')
 especies = cargar_csv('especies.csv')
+COLUMNAS_PROYECTOS = ['nombre','categoria','nivel','estado','responsable','descripcion','fuente','fecha_consulta','mostrar_mapa','lat','lon','radio_m']
+COLUMNAS_ESPECIES = ['nombre','cientifico','emoji','grupo','descripcion','habitat','comportamiento','presencia','pendientes','fuente','fuente_adicional','imagen','funcion_ecologica','como_cuidarla','evidencia_local','credito_fotografia']
+for columna in COLUMNAS_PROYECTOS:
+    if columna not in proyectos: proyectos[columna] = ''
+for columna in COLUMNAS_ESPECIES:
+    if columna not in especies: especies[columna] = ''
+
 
 @st.cache_data(ttl=86400)
 def osm_limite():
@@ -84,20 +91,44 @@ def imagen_encabezado():
         return f'url("data:image/jpeg;base64,{b64}")'
     return 'linear-gradient(120deg,#173b38,#37795a)'
 
-st.markdown('''<style>
-.block-container{padding-top:1rem;padding-bottom:2rem;max-width:1450px}
-.hero{border-radius:22px;padding:3rem 2.5rem;min-height:340px;display:flex;flex-direction:column;justify-content:center;color:white;
-background-position:center;background-size:cover}
-.hero h1{font-size:clamp(2rem,4vw,3.25rem);color:white;max-width:780px}
-.hero p{max-width:660px;font-size:1.12rem;line-height:1.65}
-.note{border-left:4px solid #347f6a;padding:.7rem 1rem;background:#edf5f1;border-radius:6px}
-div[data-testid="stMetric"]{border:1px solid #dce8e1;border-radius:12px;padding:12px;background:#f6faf8}
-@media(max-width:700px){.hero{padding:2rem 1.2rem;min-height:270px}}
-</style>''',unsafe_allow_html=True)
+st.markdown("""<style>
+:root {color-scheme:light;}
+.stApp {background:linear-gradient(180deg,#e7f2ef 0%,#f6faf7 42%,#f9fbf9 100%);color:#20332d;}
+[data-testid="stAppViewContainer"] {background: transparent;}
+[data-testid="stHeader"] {background:rgba(247,251,248,.96);}
+[data-testid="stSidebar"] {background:linear-gradient(175deg,#133d36,#1c544a);}
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"] {color:#f3faf6!important;}
+[data-testid="stSidebar"] [role="radiogroup"] p {color:#ffffff!important;}
+.block-container{padding-top:1.3rem;padding-bottom:2rem;max-width:1450px}
+.stApp h1,.stApp h2,.stApp h3{color:#194a39;}
+.stApp p, .stApp li, .stApp label {line-height:1.55;}
+.hero {border-radius:22px;padding:3rem 2.5rem;min-height:360px;display:flex;flex-direction:column;justify-content:center;color:#fff;
+background-size:cover;background-position:center;border:1px solid rgba(19,66,51,.12);box-shadow:0 12px 28px rgba(16,65,51,.14);}
+.hero h1 {font-size:clamp(2rem,4vw,3.25rem);color:#ffffff!important;max-width:780px;text-shadow:0 2px 10px rgba(0,0,0,.4);}
+.hero p {max-width:680px;font-size:1.13rem;color:white!important;line-height:1.65;text-shadow:0 1px 4px rgba(0,0,0,.45);}
+[data-testid="stVerticalBlockBorderWrapper"]>div {border-radius:16px;}
+[data-testid="stMetric"] {border:1px solid #d4e5dc;border-radius:14px;padding:14px;background:#fff;}
+[data-testid="stMetric"] * {color:#234538;}
+[data-testid="stExpander"] {background:rgba(255,255,255,.87);border-radius:12px;}
+[data-testid="stAlert"] {border-radius:12px;}
+.stButton>button[kind="secondary"] {background:#225c47;color:#fff;border:1px solid #225c47;border-radius:10px;font-weight:650;}
+.stButton>button[kind="secondary"]:hover {background:#164b38;color:white;border-color:#164b38;}
+[data-testid="stDownloadButton"] button {border-radius:10px;}
+[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea {background:#fff;color:#193a2c;}
+@media(max-width:700px){.hero{padding:2rem 1.2rem;min-height:280px}}
+</style>""",unsafe_allow_html=True)
 
 if 'navegacion' not in st.session_state: st.session_state.navegacion='Inicio'
 paginas=['Inicio','Visor territorial','Proyectos e iniciativas','Conoce el humedal','Fuentes y participación']
+if (ASSETS/'logo_escuela_geografia.png').is_file():
+    st.sidebar.image(str(ASSETS/'logo_escuela_geografia.png'), width=185)
 st.sidebar.markdown('## 🦢 Río Cruces')
+st.sidebar.caption('Prototipo académico · logo institucional de referencia; no implica aval oficial')
 st.sidebar.caption('Información territorial para todas las personas')
 def navegar(destino):
     # Streamlit runs callbacks before widgets are instantiated in the next rerun.
@@ -108,6 +139,12 @@ st.sidebar.divider()
 st.sidebar.caption('Versión de trabajo · geodatos por validar')
 
 if pagina=='Inicio':
+    header_a,header_b=st.columns([1,5],vertical_alignment='center')
+    with header_a:
+        if (ASSETS/'logo_uach.png').is_file():
+            st.image(str(ASSETS/'logo_uach.png'),width=135)
+    with header_b:
+        st.caption('Escuela de Geografía · Universidad Austral de Chile — prototipo académico, sin atribuir patrocinio institucional')
     background=imagen_encabezado()
     st.markdown(f'<div class="hero" style="background-image:linear-gradient(90deg,rgba(5,31,33,.91),rgba(5,31,33,.37)),{background}"><h1>Un humedal vivo, un territorio compartido</h1><p>Conoce el Santuario de la Naturaleza Río Cruces y Chorocamayo, explora su territorio y consulta iniciativas, biodiversidad y fuentes de información pública.</p></div>',unsafe_allow_html=True)
     st.write('')
