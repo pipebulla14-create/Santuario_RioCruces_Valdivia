@@ -39,3 +39,19 @@ requirements.txt
 assets/*.jpg, assets/*.png
 data/especies.csv, data/proyectos.csv
 ```
+
+
+## Mejoras de esta versión verde estable
+
+- Fondo fotográfico difuminado (`assets/fondo_humedal.jpg`) con capa verde oscura.
+- Panel central verde salvia con tipografía oscura para buen contraste.
+- Logos sobre paneles verde pálido para mejorar su legibilidad.
+- Sección **Biodiversidad** accesible directamente desde el menú lateral.
+- Expansor **Comprobar fotos y archivos** en la barra lateral que muestra qué archivos faltan en GitHub.
+- Fichas de especies con información ecológica, fotos y enlaces ya incluidos en `data/especies.csv`.
+
+**Si falta una imagen:** comprueba que el nombre en `especies.csv` coincida exactamente, respetando mayúsculas, espacios y extensión, con el archivo en `assets/`.
+
+**Actualización:** cargar `app.py`, `requirements.txt`, `assets/`, `data/` y `.streamlit/config.toml` en la raíz del repositorio de GitHub. No crear una subcarpeta adicional con el nombre del ZIP.
+
+Las fotografías y logos requieren verificación de permiso y atribución para publicación pública. El prototipo no atribuye respaldo institucional por mostrar logos.
