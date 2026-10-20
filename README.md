@@ -1,33 +1,41 @@
 # Visor territorial ciudadano — Santuario Río Cruces
 
-Prototipo académico desarrollado con Streamlit y Folium. Los datos están en revisión.
+Proyecto académico en **Python + Streamlit + Folium**. Esta versión usa las fotos proporcionadas en el chat y los logotipos remitidos por el usuario. Su inclusión es **referencial** y no significa respaldo oficial de la UACh. Confirmar permiso de uso y créditos de cada imagen antes de publicar.
 
-## Estructura
-- `app.py`: aplicación Streamlit.
-- `requirements.txt`: bibliotecas que instala Streamlit Cloud.
-- `assets/portada_humedal.jpg`: ilustración de portada (reemplazar por foto autorizada y atribuir autoría).
-- `data/proyectos.csv`: proyectos y antecedentes; se pueden ampliar en una hoja de cálculo.
-- `data/especies.csv`: fichas educativas.
+## Cómo actualizar GitHub
 
-## Publicación en GitHub + Streamlit Cloud
-1. Subir los archivos y las carpetas conservando la estructura.
-2. En Streamlit Cloud elegir repositorio y `app.py` como archivo principal.
-3. Dejar que Streamlit instale las dependencias de `requirements.txt`.
-4. Agregar un GeoJSON oficial del santuario y un GeoJSON justificado del área de análisis.
-5. Corroborar coordenadas y expedientes antes de usar información como oficial.
+1. Descarga y descomprime el ZIP.
+2. En el repositorio, reemplaza **app.py** y **requirements.txt** en la raíz.
+3. Sube la carpeta **.streamlit/config.toml** (incluido el punto inicial en el nombre de la carpeta).
+4. Sube los archivos de **assets/** y **data/** conservando nombres, incluyendo `portada_humedal.jpg`, `logo_uach.png`, `logo_escuela_geografia.png`, `especies.csv` y `proyectos.csv`.
+5. Confirma cambios con **Commit changes**. Streamlit Community Cloud debería redesplegar automáticamente si está conectado a la rama `main`.
+6. Revisa **Manage app → Logs** si algo falla. No subas tokens ni contraseñas.
 
-## Agregar datos
-Agregar filas en los CSV sin cambiar nombres de columnas. `mostrar_mapa=si` requiere `lat`, `lon`, `radio_m` numéricos. El radio es **solo ilustrativo** y está desactivado por defecto.
+## Cuenca hidrográfica
 
-## Estado de los datos
-Las iniciativas documentales tienen enlace a su fuente. El estado de ejecución actual requiere revisión. Los cuatro puntos del código original son **no verificados**. No son evidencia de impacto ambiental.
+No se inventan límites. Descargar el polígono de la **Subcuenca Río Cruces** en [SIMBIO](https://simbio.mma.gob.cl/Subcuencas/Details/1013) o la [Mapoteca DGA](https://dga.mop.gob.cl/mapoteca-digital/). Convertir en QGIS a **GeoJSON EPSG:4326**, comprobar la geometría y guardar como `data/cuenca_rio_cruces.geojson`. El visor también permite carga manual.
 
-## Mejoras futuras
-Incorporar geometrías oficiales de cuenca/subcuencas, secciones de descarga SIG, fechas automáticas de verificación de fuentes y backend moderado para participación.
+## Datos, imágenes y fuentes
 
+- `data/especies.csv` contiene las fichas, roles ecológicos y fuentes.
+- `data/proyectos.csv` contiene referencias documentales y registros preliminares, **no una lista de impactos confirmados**.
+- Imágenes en `assets/` son ilustrativas; no constituyen prueba de presencia local de fauna.
+- Fotos recibidas sin licencia/crédito confirmado: revisar atribución antes de publicar. La imagen aérea conserva su marca de agua original, que no debe eliminarse para ocultar atribución.
+- Logos universitarios son elementos referenciales del prototipo; consultar autorización de uso institucional para una publicación oficial.
 
-## Fotografías y responsabilidad editorial
-Las fotos recibidas se incluyen como **material de trabajo**. Antes de difundir públicamente, verifica autor, procedencia, licencia o permiso y crédito de cada imagen. Las fotos no prueban presencia georreferenciada. La foto de vegetación emergente no se identifica taxonómicamente como totora sin verificación adicional.
+## Instalación local
 
-## Función ecológica de especies
-Las columnas `funcion_ecologica`, `como_cuidarla` y `evidencia_local` permiten contar por qué importa cada especie y cómo se relaciona con la protección del santuario. Los textos son divulgativos y requieren apoyo bibliográfico específico antes de publicación académica.
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Archivos
+
+```
+app.py
+requirements.txt
+.streamlit/config.toml
+assets/*.jpg, assets/*.png
+data/especies.csv, data/proyectos.csv
+```
