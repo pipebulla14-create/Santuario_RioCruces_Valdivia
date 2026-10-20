@@ -23,7 +23,15 @@ ASSETS = ROOT / 'assets'
 
 @st.cache_data
 def cargar_csv(archivo):
-    return pd.read_csv(DATA / archivo).fillna('')
+    ruta = DATA / archivo
+    if not ruta.exists():
+        st.error(f'Falta el archivo {ruta.relative_to(ROOT)}. Súbelo a GitHub dentro de la carpeta data.')
+        st.stop()
+    try:
+        return pd.read_csv(ruta, dtype=str, keep_default_na=False).fillna('')
+    except Exception as exc:
+        st.error(f'No se pudo leer {archivo}: {exc}')
+        st.stop()
 
 proyectos = cargar_csv('proyectos.csv')
 especies = cargar_csv('especies.csv')
@@ -79,7 +87,7 @@ def imagen_encabezado():
 st.markdown('''<style>
 .block-container{padding-top:1rem;padding-bottom:2rem;max-width:1450px}
 .hero{border-radius:22px;padding:3rem 2.5rem;min-height:340px;display:flex;flex-direction:column;justify-content:center;color:white;
-background:linear-gradient(90deg,rgba(5,31,33,.91),rgba(5,31,33,.37)),var(--hero-image);background-position:center;background-size:cover}
+background-position:center;background-size:cover}
 .hero h1{font-size:clamp(2rem,4vw,3.25rem);color:white;max-width:780px}
 .hero p{max-width:660px;font-size:1.12rem;line-height:1.65}
 .note{border-left:4px solid #347f6a;padding:.7rem 1rem;background:#edf5f1;border-radius:6px}
@@ -91,30 +99,37 @@ if 'navegacion' not in st.session_state: st.session_state.navegacion='Inicio'
 paginas=['Inicio','Visor territorial','Proyectos e iniciativas','Conoce el humedal','Fuentes y participación']
 st.sidebar.markdown('## 🦢 Río Cruces')
 st.sidebar.caption('Información territorial para todas las personas')
+def navegar(destino):
+    # Streamlit runs callbacks before widgets are instantiated in the next rerun.
+    st.session_state.navegacion = destino
+
 pagina=st.sidebar.radio('Secciones', paginas, key='navegacion')
 st.sidebar.divider()
 st.sidebar.caption('Versión de trabajo · geodatos por validar')
 
 if pagina=='Inicio':
     background=imagen_encabezado()
-    st.markdown(f'<div class="hero" style="--hero-image:{background}"><h1>Un humedal vivo, un territorio compartido</h1><p>Conoce el Santuario de la Naturaleza Río Cruces y Chorocamayo, explora su territorio y consulta iniciativas, biodiversidad y fuentes de información pública.</p></div>',unsafe_allow_html=True)
+    st.markdown(f'<div class="hero" style="background-image:linear-gradient(90deg,rgba(5,31,33,.91),rgba(5,31,33,.37)),{background}"><h1>Un humedal vivo, un territorio compartido</h1><p>Conoce el Santuario de la Naturaleza Río Cruces y Chorocamayo, explora su territorio y consulta iniciativas, biodiversidad y fuentes de información pública.</p></div>',unsafe_allow_html=True)
     st.write('')
     a,b,c=st.columns(3)
     with a:
         st.subheader('🗺️ Visor territorial'); st.write('Explora las capas y comprende sus límites.')
-        if st.button('Explorar el mapa',use_container_width=True): st.session_state.navegacion='Visor territorial';st.rerun()
+        st.button('Explorar el mapa', use_container_width=True, on_click=navegar, args=('Visor territorial',))
     with b:
         st.subheader('🏗️ Proyectos e iniciativas');st.write('Encuentra documentos, responsables y estado de los antecedentes.')
-        if st.button('Consultar proyectos',use_container_width=True): st.session_state.navegacion='Proyectos e iniciativas';st.rerun()
+        st.button('Consultar proyectos', use_container_width=True, on_click=navegar, args=('Proyectos e iniciativas',))
     with c:
         st.subheader('🌿 Conoce el humedal');st.write('Aprende sobre su biodiversidad, conservación y funcionamiento.')
-        if st.button('Aprender del humedal',use_container_width=True):st.session_state.navegacion='Conoce el humedal';st.rerun()
+        st.button('Aprender del humedal', use_container_width=True, on_click=navegar, args=('Conoce el humedal',))
     st.divider();st.subheader('El territorio en contexto')
     c1,c2,c3=st.columns(3)
     c1.metric('Iniciativas documentales',len(proyectos),'No implica ejecución vigente',delta_color='off')
     c2.metric('Temas de biodiversidad',len(especies),'Fichas de divulgación',delta_color='off')
     c3.metric('Criterio del visor','Fuentes abiertas')
     st.info('Los proyectos institucionales son referencias documentales; los proyectos de impacto territorial originales están separados como registros de trabajo sin verificar. No se deducen impactos a partir de cercanía geográfica.')
+    
+    if (ASSETS/'cisnes_grupo.jpg').is_file():
+        st.image(str(ASSETS/'cisnes_grupo.jpg'), caption='Cisnes de cuello negro en el humedal · atribución pendiente de verificar.', use_container_width=True)
     st.markdown('**Nuestro propósito:** que la información se pueda consultar mediante mapas, fichas y enlaces directos, sin conocimientos previos de SIG.')
 
 elif pagina=='Visor territorial':
@@ -132,7 +147,16 @@ elif pagina=='Visor territorial':
         ver_especies=st.checkbox('Ejemplos de especies (no son observaciones)',False)
         st.divider();st.caption('Límites / área de influencia')
         limite_cargado=leer_geojson(st.file_uploader('GeoJSON oficial del santuario',type=['json','geojson'],key='limite'))
-        influencia_cargada=leer_geojson(st.file_uploader('GeoJSON del área de análisis',type=['json','geojson'],key='influencia'))
+        cuenca_cargada=leer_geojson(st.file_uploader('GeoJSON de subcuenca Río Cruces (EPSG:4326)',type=['json','geojson'],key='cuenca'))
+        ruta_cuenca=DATA/'cuenca_rio_cruces.geojson'
+        if cuenca_cargada is None and ruta_cuenca.exists():
+            try:
+                cuenca_cargada=json.loads(ruta_cuenca.read_text(encoding='utf-8'))
+            except (OSError, ValueError) as exc:
+                st.warning(f'El archivo de cuenca no se pudo leer: {exc}')
+        influencia_cargada=leer_geojson(st.file_uploader('GeoJSON del área de análisis propuesta',type=['json','geojson'],key='influencia'))
+        st.caption('Subcuenca Río Cruces: código BNA 1013. Descarga cartografía en SIMBIO o DGA, conviértela a GeoJSON EPSG:4326 con QGIS y súbela aquí.')
+        st.markdown('[SIMBIO — Subcuenca Río Cruces](https://simbio.mma.gob.cl/Subcuencas/Details/1013) · [DGA — Mapoteca](https://dga.mop.gob.cl/mapoteca-digital/)')
         st.caption('Subir archivos no demuestra que sean oficiales: consigna fuente, escala y metodología.')
     if base=='Satelital':
         mapa=folium.Map(CENTER,zoom_start=11,tiles=None,control_scale=True)
@@ -144,6 +168,13 @@ elif pagina=='Visor territorial':
         if limite:
             folium.GeoJson(limite,name='Santuario (revisar fuente)',style_function=lambda f:{'color':'#21824d','weight':3,'fillColor':'#71d7a2','fillOpacity':.18},tooltip='Límite representado; confirmar fuente').add_to(mapa)
         else:st.warning('No se obtuvo el polígono. Carga el límite oficial GeoJSON. No se dibujó uno ficticio como límite legal.')
+    if cuenca_cargada:
+        try:
+            folium.GeoJson(cuenca_cargada, name='Subcuenca Río Cruces (verificar fuente)',
+                style_function=lambda f:{'color':'#1565c0','weight':2.5,'fillColor':'#42a5f5','fillOpacity':.08},
+                tooltip='Subcuenca Río Cruces BNA 1013 — verificar geometría y metadatos').add_to(mapa)
+        except Exception as exc:
+            st.warning(f'No fue posible representar la cuenca: {exc}')
     if influencia_cargada:
         folium.GeoJson(influencia_cargada,name='Área de análisis aportada',style_function=lambda f:{'color':'#f39c12','weight':3,'dashArray':'7,6','fillOpacity':.08},tooltip='Área de análisis cargada: revisar metodología').add_to(mapa)
     if ver_esquema:
@@ -154,13 +185,17 @@ elif pagina=='Visor territorial':
         for _,p in proyectos[proyectos['mostrar_mapa'].astype(str)=='si'].iterrows():
             if str(p['lat'])=='' or str(p['lon'])=='':continue
             contenido=f"<b>{escape(str(p['nombre']))}</b><br>{escape(str(p['categoria']))}<br>Ubicación aproximada; revisar expediente.<br><a target='_blank' href='{escape(str(p['fuente']),quote=True)}'>Ver fuente</a>"
-            folium.Marker([float(p['lat']),float(p['lon'])],tooltip=p['nombre'],popup=folium.Popup(contenido,max_width=290),icon=folium.Icon(color='orange',icon='info-sign')).add_to(grupo)
+            try: lat_p,lon_p = float(p['lat']),float(p['lon'])
+            except (ValueError,TypeError): continue
+            folium.Marker([lat_p,lon_p],tooltip=p['nombre'],popup=folium.Popup(contenido,max_width=290),icon=folium.Icon(color='orange',icon='info-sign')).add_to(grupo)
         grupo.add_to(mapa)
     if ver_radios:
         grupo=folium.FeatureGroup(name='Radios ilustrativos NO OFICIALES')
         for _,p in proyectos[proyectos['mostrar_mapa'].astype(str)=='si'].iterrows():
             if str(p['lat'])=='' or str(p['lon'])=='':continue
-            folium.Circle([float(p['lat']),float(p['lon'])],radius=int(p['radio_m']),color='#de8e29',fill=True,fill_opacity=.07,tooltip='Radio ilustrativo; no equivale a área de influencia').add_to(grupo)
+            try: lat_p,lon_p,radio_p = float(p['lat']),float(p['lon']),float(p['radio_m'])
+            except (ValueError,TypeError): continue
+            folium.Circle([lat_p,lon_p],radius=radio_p,color='#de8e29',fill=True,fill_opacity=.07,tooltip='Radio ilustrativo; no equivale a área de influencia').add_to(grupo)
         grupo.add_to(mapa)
     if ver_especies:
         grupo=folium.FeatureGroup(name='Puntos DEMOSTRATIVOS de especies')
@@ -205,18 +240,56 @@ elif pagina=='Conoce el humedal':
     st.write('Un recorrido por los conceptos esenciales, con explicaciones sencillas y fuentes para profundizar.')
     tabs=st.tabs(['El humedal','Biodiversidad','El territorio','Preguntas frecuentes'])
     with tabs[0]:
+        if (ASSETS/'letrero_santuario.jpg').is_file():
+            st.image(str(ASSETS/'letrero_santuario.jpg'), caption='Acceso al santuario · fotografía de referencia; atribución pendiente.', use_container_width=True)
         st.subheader('¿Por qué es importante?')
         st.write('Los humedales son ecosistemas donde el agua influye en los suelos, las plantas y los animales. Pueden albergar biodiversidad, retener sedimentos y aportar a la regulación del agua. Sus funciones varían según cada sitio.')
         st.markdown('**Santuario Río Cruces y Chorocamayo:** conoce su gestión en el [Plan de Manejo de CONAF](https://www.conaf.cl/centro-documental/pm-mn-y-sn-rio-cruces-y-chorocamayo-v-extendida/).')
     with tabs[1]:
-        texto=st.text_input('Buscar una especie')
-        resultados=especies[especies['nombre'].str.contains(texto,case=False,regex=False)]
+        st.info('Los nombres científicos se escriben en cursiva. Las fichas describen especies, no observaciones georreferenciadas dentro del santuario.')
+        texto=st.text_input('Buscar una especie por nombre común o científico')
+        grupo=st.selectbox('Grupo', ['Todos','Ave','Mamífero','Planta','Insecto'])
+        resultados=especies.copy()
+        filtro=(resultados['nombre'].str.contains(texto,case=False,regex=False,na=False) |
+                resultados['cientifico'].str.contains(texto,case=False,regex=False,na=False))
+        resultados=resultados[filtro]
+        if grupo!='Todos': resultados=resultados[resultados['grupo']==grupo]
+        if resultados.empty: st.info('No hay especies que coincidan con los filtros.')
         for _,e in resultados.iterrows():
-            with st.expander(f"{e['emoji']} {e['nombre']} — {e['cientifico']}"):
+            with st.container(border=True):
+                st.markdown(f"### {e['emoji']} {e['nombre']}")
+                st.markdown(f"*{e['cientifico']}* · {e['grupo']}")
+                archivo_img = str(e.get('imagen', '')).strip()
+                if archivo_img and Path(archivo_img).name == archivo_img and (ASSETS / archivo_img).is_file():
+                    st.image(str(ASSETS / archivo_img), use_container_width=True, caption='Fotografía ilustrativa de la especie; revisar crédito y permiso de uso.')
+                else:
+                    st.caption('Fotografía no disponible: la ficha continúa funcionando sin imagen.')
                 st.write(e['descripcion'])
-                st.caption('Ficha educativa: no implica registro georreferenciado en el lugar dibujado en el mapa.')
-                st.markdown(f"[Más información sobre la especie]({e['fuente']})")
+                st.markdown('**¿Qué función cumple en el ecosistema?**')
+                st.write(e.get('funcion_ecologica', 'Información por completar.'))
+                st.markdown('**¿Cómo podemos protegerla y proteger su hábitat?**')
+                st.write(e.get('como_cuidarla', 'Información por completar.'))
+                st.caption('**Evidencia territorial:** ' + str(e.get('evidencia_local', 'Comprobar registros locales.')))
+                c1,c2=st.columns(2)
+                with c1:
+                    st.markdown('**Hábitat y alimentación**')
+                    st.write(e['habitat'])
+                    st.markdown('**Hábitos / estacionalidad**')
+                    st.write(e['comportamiento'])
+                with c2:
+                    st.markdown('**Distribución y relación con el santuario**')
+                    st.write(e['presencia'])
+                    st.markdown('**Información pendiente de completar**')
+                    st.write(e['pendientes'])
+                st.markdown(f"[Consultar ficha de referencia]({e['fuente']})")
+                if e['fuente_adicional']:
+                    st.markdown(f"[Consultar fuente complementaria]({e['fuente_adicional']})")
+                st.caption('La categoría de conservación y la presencia local deben consultarse en registros oficiales vigentes. No asumir hibernación en ausencia de evidencia.')
+        st.download_button('Descargar fichas de especies (CSV)',
+            especies.to_csv(index=False).encode('utf-8-sig'),file_name='especies_rio_cruces.csv',mime='text/csv')
     with tabs[2]:
+        st.markdown('**Subcuenca Río Cruces (BNA 1013):** forma parte de la cuenca del río Valdivia y SIMBIO informa una superficie de 328.965 ha. [Consultar cartografía y descargas](https://simbio.mma.gob.cl/Subcuencas/Details/1013).')
+        st.markdown('**Cartografía recomendada:** [Mapoteca de la DGA](https://dga.mop.gob.cl/mapoteca-digital/) y [IDE MMA](https://ide.mma.gob.cl/centro-de-descargas).')
         st.markdown('**Cuenca hidrográfica:** territorio cuyas aguas drenan hacia un mismo sistema.\n\n**Área protegida:** límite legal definido en su instrumento de creación.\n\n**Área de análisis territorial:** delimitación definida por un estudio; necesita objetivos y metodología.\n\n**Área de influencia de proyecto:** debe justificarse de acuerdo con el sistema ambiental y sus posibles efectos.')
     with tabs[3]:
         for pregunta,respuesta in [
