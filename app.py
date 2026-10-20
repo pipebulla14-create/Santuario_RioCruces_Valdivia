@@ -15,7 +15,7 @@ from shapely.ops import transform
 from streamlit_folium import st_folium
 
 ROOT = Path(__file__).parent
-st.set_page_config(page_title='Santuario Río Cruces | Visor ciudadano', page_icon='🦢', layout='wide')
+st.set_page_config(page_title='Santuario Río Cruces | Visor ciudadano', page_icon='🦢', layout='wide', initial_sidebar_state='expanded')
 CENTER = [-39.68, -73.19]
 HEADERS = {'User-Agent': 'VisorRioCrucesAcademico/1.0 (consulta cartografica)'}
 DATA = ROOT / 'data'
@@ -91,40 +91,91 @@ def imagen_encabezado():
         return f'url("data:image/jpeg;base64,{b64}")'
     return 'linear-gradient(120deg,#173b38,#37795a)'
 
-st.markdown("""<style>
-:root {color-scheme:light;}
-.stApp {background:linear-gradient(180deg,#e7f2ef 0%,#f6faf7 42%,#f9fbf9 100%);color:#20332d;}
-[data-testid="stAppViewContainer"] {background: transparent;}
-[data-testid="stHeader"] {background:rgba(247,251,248,.96);}
-[data-testid="stSidebar"] {background:linear-gradient(175deg,#133d36,#1c544a);}
+@st.cache_data(show_spinner=False)
+def imagen_fondo_css():
+    ruta = ASSETS / 'fondo_humedal.jpg'
+    if not ruta.is_file():
+        return ''
+    try:
+        return base64.b64encode(ruta.read_bytes()).decode('ascii')
+    except OSError:
+        return ''
+
+fondo_b64 = imagen_fondo_css()
+fondo_url = f'url("data:image/jpeg;base64,{fondo_b64}")' if fondo_b64 else 'linear-gradient(120deg, #0a302c, #18513e)'
+css_estilo = """
+<style>
+:root {color-scheme: light;}
+.stApp {
+    background-color:#0e372f;
+    background-image: linear-gradient(115deg,rgba(5,29,25,.78),rgba(9,52,44,.68)), VAR_FONDO;
+    background-size:cover; background-position:center; background-attachment:fixed;
+    color:#193b30;
+}
+[data-testid="stAppViewContainer"] {background:transparent;}
+[data-testid="stHeader"] {background:rgba(12,49,41,.85);}
+[data-testid="stHeader"] button {color:#ffffff!important;}
+.block-container {
+    margin-top:.6rem; margin-bottom:1.5rem; padding:2rem 2.5rem 2.5rem;
+    max-width:1460px; background:rgba(231,243,233,.97);
+    border:1px solid rgba(216,240,222,.75); border-radius:24px;
+    box-shadow:0 18px 55px rgba(0,20,15,.24);
+}
+.block-container h1,.block-container h2,.block-container h3,
+.block-container h4 {color:#154a36!important;}
+.block-container p,.block-container li,.block-container label,
+.block-container span {line-height:1.5;}
+[data-testid="stSidebar"] {background:linear-gradient(175deg,#103c32,#0a2924)!important;}
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h1,
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2,
-[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
 [data-testid="stSidebar"] label,
-[data-testid="stSidebar"] [data-testid="stWidgetLabel"] {color:#f3faf6!important;}
-[data-testid="stSidebar"] [role="radiogroup"] p {color:#ffffff!important;}
-.block-container{padding-top:1.3rem;padding-bottom:2rem;max-width:1450px}
-.stApp h1,.stApp h2,.stApp h3{color:#194a39;}
-.stApp p, .stApp li, .stApp label {line-height:1.55;}
-.hero {border-radius:22px;padding:3rem 2.5rem;min-height:360px;display:flex;flex-direction:column;justify-content:center;color:#fff;
-background-size:cover;background-position:center;border:1px solid rgba(19,66,51,.12);box-shadow:0 12px 28px rgba(16,65,51,.14);}
-.hero h1 {font-size:clamp(2rem,4vw,3.25rem);color:#ffffff!important;max-width:780px;text-shadow:0 2px 10px rgba(0,0,0,.4);}
-.hero p {max-width:680px;font-size:1.13rem;color:white!important;line-height:1.65;text-shadow:0 1px 4px rgba(0,0,0,.45);}
-[data-testid="stVerticalBlockBorderWrapper"]>div {border-radius:16px;}
-[data-testid="stMetric"] {border:1px solid #d4e5dc;border-radius:14px;padding:14px;background:#fff;}
-[data-testid="stMetric"] * {color:#234538;}
-[data-testid="stExpander"] {background:rgba(255,255,255,.87);border-radius:12px;}
+[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+[data-testid="stSidebar"] [role="radiogroup"] p {color:#f2fff7!important;}
+[data-testid="stSidebar"] [data-testid="stImage"] {
+    background:#e8f4e9; padding:14px; border:1px solid #bedac7;
+    border-radius:16px; margin-bottom:12px;
+}
+/* The block below is for logos with dark or transparent lettering. */
+.logo-panel {
+    background:#eef7ec; padding:16px; border-radius:14px;
+    border:2px solid #b7d4ba; display:inline-block;
+}
+.hero {
+    border-radius:19px; padding:3rem 2.3rem; min-height:340px;
+    display:flex; flex-direction:column; justify-content:center;
+    background-size:cover; background-position:center;
+    box-shadow:0 12px 25px rgba(10,45,32,.17); border:2px solid #b4d3bf;
+}
+.hero h1 {font-size:clamp(1.85rem,3.7vw,3.15rem);color:#ffffff!important;max-width:750px;text-shadow:0 2px 10px rgba(0,0,0,.50);}
+.hero p {max-width:680px;font-size:1.12rem;color:#ffffff!important;line-height:1.65;text-shadow:0 2px 7px rgba(0,0,0,.7);}
+[data-testid="stVerticalBlockBorderWrapper"] > div {border-radius:16px;}
+[data-testid="stVerticalBlockBorderWrapper"] > div[data-testid="stVerticalBlock"] {
+    background:#f4f9f2;
+}
+[data-testid="stMetric"] {border:1px solid #a8ceb5;border-radius:13px;padding:13px;background:#f6fbf5;}
+[data-testid="stMetric"] * {color:#163d2e!important;}
+[data-testid="stExpander"] {background:#f2f8ef;border:1px solid #b7d6bf;border-radius:13px;}
 [data-testid="stAlert"] {border-radius:12px;}
-.stButton>button[kind="secondary"] {background:#225c47;color:#fff;border:1px solid #225c47;border-radius:10px;font-weight:650;}
-.stButton>button[kind="secondary"]:hover {background:#164b38;color:white;border-color:#164b38;}
-[data-testid="stDownloadButton"] button {border-radius:10px;}
-[data-testid="stTextInput"] input, [data-testid="stTextArea"] textarea {background:#fff;color:#193a2c;}
-@media(max-width:700px){.hero{padding:2rem 1.2rem;min-height:280px}}
-</style>""",unsafe_allow_html=True)
+.stButton>button[kind="secondary"], .stButton>button[kind="primary"] {
+    background:#216748!important;color:#ffffff!important;
+    border:1px solid #16573a!important;border-radius:11px;font-weight:650;
+}
+.stButton>button:hover {background:#155138!important;color:#ffffff!important;}
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea, [data-testid="stSelectbox"] div[data-baseweb="select"] {
+    background:#f7fbf5!important;color:#1d4633!important;
+}
+[data-testid="stTabs"] button {font-weight:650;}
+[data-testid="stImage"] img {border-radius:10px;}
+@media(max-width:700px){.block-container{padding:1rem .8rem;border-radius:14px}.hero{padding:1.7rem 1rem;min-height:250px}}
+</style>
+""".replace('VAR_FONDO', fondo_url)
+st.markdown(css_estilo, unsafe_allow_html=True)
 
 if 'navegacion' not in st.session_state: st.session_state.navegacion='Inicio'
-paginas=['Inicio','Visor territorial','Proyectos e iniciativas','Conoce el humedal','Fuentes y participación']
+paginas=['Inicio','Visor territorial','Proyectos e iniciativas','Biodiversidad','Conoce el humedal','Fuentes y participación']
 if (ASSETS/'logo_escuela_geografia.png').is_file():
     st.sidebar.image(str(ASSETS/'logo_escuela_geografia.png'), width=185)
 st.sidebar.markdown('## 🦢 Río Cruces')
@@ -137,12 +188,18 @@ def navegar(destino):
 pagina=st.sidebar.radio('Secciones', paginas, key='navegacion')
 st.sidebar.divider()
 st.sidebar.caption('Versión de trabajo · geodatos por validar')
+with st.sidebar.expander('Comprobar fotos y archivos'):
+    for nombre_archivo in ['portada_humedal.jpg','logo_uach.png','logo_escuela_geografia.png','cisne_cuello_negro.jpg','luchecillo.jpg']:
+        st.caption(('✅ ' if (ASSETS/nombre_archivo).is_file() else '❌ ') + 'assets/' + nombre_archivo)
+    for nombre_archivo in ['especies.csv','proyectos.csv']:
+        st.caption(('✅ ' if (DATA/nombre_archivo).is_file() else '❌ ') + 'data/' + nombre_archivo)
 
 if pagina=='Inicio':
     header_a,header_b=st.columns([1,5],vertical_alignment='center')
     with header_a:
         if (ASSETS/'logo_uach.png').is_file():
-            st.image(str(ASSETS/'logo_uach.png'),width=135)
+            with st.container(border=True):
+                st.image(str(ASSETS/'logo_uach.png'),width=135)
     with header_b:
         st.caption('Escuela de Geografía · Universidad Austral de Chile — prototipo académico, sin atribuir patrocinio institucional')
     background=imagen_encabezado()
@@ -271,6 +328,51 @@ elif pagina=='Proyectos e iniciativas':
             st.markdown(f"[Consultar documento o portal de origen]({p['fuente']})")
             st.caption('Ubicación cartográfica disponible solo cuando exista coordenada; las marcadas son aproximadas. Fuente consultada: ' + str(p['fecha_consulta']))
     st.download_button('Descargar catálogo CSV (incluye nivel de certeza)',proyectos.to_csv(index=False).encode('utf-8-sig'),file_name='proyectos_rio_cruces.csv',mime='text/csv')
+
+elif pagina=='Biodiversidad':
+    st.title('🦢 Biodiversidad del Santuario')
+    st.write('Explora las especies, su función ecológica y acciones para cuidar sus hábitats. Las imágenes son ilustrativas; la presencia local debe acreditarse con registros.')
+    st.info('Los nombres científicos se escriben en cursiva. Las fichas describen especies, no observaciones georreferenciadas dentro del santuario.')
+    texto=st.text_input('Buscar una especie por nombre común o científico')
+    grupo=st.selectbox('Grupo', ['Todos','Ave','Mamífero','Planta','Insecto'])
+    resultados=especies.copy()
+    filtro=(resultados['nombre'].str.contains(texto,case=False,regex=False,na=False) |
+            resultados['cientifico'].str.contains(texto,case=False,regex=False,na=False))
+    resultados=resultados[filtro]
+    if grupo!='Todos': resultados=resultados[resultados['grupo']==grupo]
+    if resultados.empty: st.info('No hay especies que coincidan con los filtros.')
+    for _,e in resultados.iterrows():
+        with st.container(border=True):
+            st.markdown(f"### {e['emoji']} {e['nombre']}")
+            st.markdown(f"*{e['cientifico']}* · {e['grupo']}")
+            archivo_img = str(e.get('imagen', '')).strip()
+            if archivo_img and Path(archivo_img).name == archivo_img and (ASSETS / archivo_img).is_file():
+                st.image(str(ASSETS / archivo_img), use_container_width=True, caption='Fotografía ilustrativa de la especie; revisar crédito y permiso de uso.')
+            else:
+                st.caption('Fotografía no disponible: la ficha continúa funcionando sin imagen.')
+            st.write(e['descripcion'])
+            st.markdown('**¿Qué función cumple en el ecosistema?**')
+            st.write(e.get('funcion_ecologica', 'Información por completar.'))
+            st.markdown('**¿Cómo podemos protegerla y proteger su hábitat?**')
+            st.write(e.get('como_cuidarla', 'Información por completar.'))
+            st.caption('**Evidencia territorial:** ' + str(e.get('evidencia_local', 'Comprobar registros locales.')))
+            c1,c2=st.columns(2)
+            with c1:
+                st.markdown('**Hábitat y alimentación**')
+                st.write(e['habitat'])
+                st.markdown('**Hábitos / estacionalidad**')
+                st.write(e['comportamiento'])
+            with c2:
+                st.markdown('**Distribución y relación con el santuario**')
+                st.write(e['presencia'])
+                st.markdown('**Información pendiente de completar**')
+                st.write(e['pendientes'])
+            st.markdown(f"[Consultar ficha de referencia]({e['fuente']})")
+            if e['fuente_adicional']:
+                st.markdown(f"[Consultar fuente complementaria]({e['fuente_adicional']})")
+            st.caption('La categoría de conservación y la presencia local deben consultarse en registros oficiales vigentes. No asumir hibernación en ausencia de evidencia.')
+    st.download_button('Descargar fichas de especies (CSV)',
+        especies.to_csv(index=False).encode('utf-8-sig'),file_name='especies_rio_cruces.csv',mime='text/csv')
 
 elif pagina=='Conoce el humedal':
     st.title('🌿 Conoce el humedal')
